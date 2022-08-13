@@ -1374,21 +1374,42 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 	ranks := make([]CompetitionRank, 0, len(pss))
 	scoredPlayerSet := make(map[string]struct{}, len(pss))
+	var ids []string
+
+	uniquePss := []PlayerScoreRow{}
 	for _, ps := range pss {
 		// player_scoreが同一player_id内ではrow_numの降順でソートされているので
 		// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
 		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
 			continue
 		}
+		ids = append(ids, ps.PlayerID)
+		uniquePss = append(uniquePss, ps)
 		scoredPlayerSet[ps.PlayerID] = struct{}{}
-		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
+	}
+	var p []PlayerRow
+	sql, params, err := sqlx.In("SELECT * FROM player WHERE id IN (?)", ids)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := tenantDB.Select(&p, sql, params...); err != nil {
+		return fmt.Errorf("error Select player: %w", err)
+	}
+
+	var playerRow map[string]PlayerRow
+	for _, row := range p {
+		playerRow[row.ID] = row
+	}
+
+	for _, ps := range uniquePss {
 		if err != nil {
 			return fmt.Errorf("error retrievePlayer: %w", err)
 		}
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
-			PlayerID:          p.ID,
-			PlayerDisplayName: p.DisplayName,
+			PlayerID:          playerRow[ps.PlayerID].ID,
+			PlayerDisplayName: playerRow[ps.PlayerID].DisplayName,
 			RowNum:            ps.RowNum,
 		})
 	}
