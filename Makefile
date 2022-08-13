@@ -26,3 +26,5 @@ truncate-logs:
 kataribe:
 	sudo cat /var/log/nginx/access.log | ./kataribe -conf kataribe.toml
 
+bench:
+	ssh isucon-bench "cd bench && ./bench -target-addr 172.31.10.233:443"
