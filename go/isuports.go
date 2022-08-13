@@ -1388,13 +1388,14 @@ func competitionRankingHandler(c echo.Context) error {
 		scoredPlayerSet[ps.PlayerID] = struct{}{}
 	}
 	var p []PlayerRow
-	sql, params, err := sqlx.In("SELECT * FROM player WHERE id IN (?)", ids)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := tenantDB.Select(&p, sql, params...); err != nil {
-		return fmt.Errorf("error Select player: %w", err)
+	if len(ids) > 0 {
+		sql, params, err := sqlx.In("SELECT * FROM player WHERE id IN (?)", ids)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := tenantDB.Select(&p, sql, params...); err != nil {
+			return fmt.Errorf("error Select player: %w", err)
+		}
 	}
 
 	var playerRow map[string]PlayerRow
