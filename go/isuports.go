@@ -1398,6 +1398,7 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 
 	var playerRow map[string]PlayerRow
+	playerRow = make(map[string]PlayerRow, len(p))
 	for _, row := range p {
 		playerRow[row.ID] = row
 	}
