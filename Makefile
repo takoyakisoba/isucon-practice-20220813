@@ -3,7 +3,7 @@
 gogo: stop-services build truncate-logs start-services
 
 build:
-	cd go && make isuports
+	#cd go && make isuports
 
 stop-services:
 	sudo systemctl stop nginx
