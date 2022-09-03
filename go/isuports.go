@@ -1190,25 +1190,30 @@ func playerHandler(c echo.Context) error {
 		return fmt.Errorf("error Select competition: %w", err)
 	}
 
-	pss := make([]PlayerScoreRow, 0, len(cs))
-	for _, c := range cs {
-		ps := PlayerScoreRow{}
-		if err := tenantDB.GetContext(
-			ctx,
-			&ps,
-			// 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
-			"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1",
-			v.tenantID,
-			c.ID,
-			p.ID,
-		); err != nil {
-			// 行がない = スコアが記録されてない
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, playerID=%s, %w", v.tenantID, c.ID, p.ID, err)
+	cIdUnique := make(map[string]struct{})
+	var cIds []interface{}
+	for _, row := range cs {
+		id := row.ID
+		if _, ok := cIdUnique[id]; !ok {
+			cIds = append(cIds, id)
+			cIdUnique[id] = struct{}{}
 		}
-		pss = append(pss, ps)
+	}
+
+	pss := make([]PlayerScoreRow, 0, len(cs))
+	if len(cIds) > 0 {
+		query, args, err := sqlx.In("SELECT id, tenant_id, player_id, competition_id, score,MAX(row_num),created_at,updated_at "+
+			"FROM player_score WHERE tenant_id = ? AND competition_id IN (?) AND player_id = ? GROUP BY id, tenant_id, player_id, competition_id,created_at,updated_at",
+			v.tenantID,
+			cIds,
+			p.ID)
+		if err != nil {
+			return fmt.Errorf("error Select competition: %w", err)
+		}
+		err = tenantDB.SelectContext(ctx,
+			&pss,
+			query,
+			args...)
 	}
 
 	psds := make([]PlayerScoreDetail, 0, len(pss))
