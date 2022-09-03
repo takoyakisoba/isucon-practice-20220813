@@ -3,6 +3,7 @@ USE `isuports`;
 DROP TABLE IF EXISTS `tenant`;
 DROP TABLE IF EXISTS `id_generator`;
 DROP TABLE IF EXISTS `visit_history`;
+DROP TABLE IF EXISTS `ranking`;
 
 CREATE TABLE `tenant` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -28,4 +29,14 @@ CREATE TABLE `visit_history` (
   `created_at` BIGINT NOT NULL,
   `updated_at` BIGINT NOT NULL,
   INDEX `tenant_id_idx` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;
+
+CREATE TABLE ranking (
+`tenant_id` BIGINT UNSIGNED NOT NULL,
+`competition_id` VARCHAR(255) NOT NULL,
+`rank` INT NOT NULL,
+`score` BIGINT NOT NULL,
+`player_id` VARCHAR(255) NOT NULL,
+`player_display_name` TEXT NOT NULL,
+PRIMARY KEY (`tenant_id`, `competition_id`, `rank`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET=utf8mb4;

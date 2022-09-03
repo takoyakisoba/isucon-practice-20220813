@@ -945,6 +945,15 @@ type ScoreHandlerResult struct {
 	Rows int64 `json:"rows"`
 }
 
+type RankingRow struct {
+	TenantID          int64  `db:"tenant_id"`
+	CompetitionID     string `db:"competition_id"`
+	Rank              int64  `db:"rank"`
+	Score             int64  `db:"score"`
+	PlayerID          string `db:"player_id"`
+	PlayerDisplayName string `db:"player_display_name"`
+}
+
 // テナント管理者向けAPI
 // POST /api/organizer/competition/:competition_id/score
 // 大会のスコアをCSVでアップロードする
@@ -1053,6 +1062,7 @@ func competitionScoreHandler(c echo.Context) error {
 	}
 
 	tx := tenantDB.MustBegin()
+	mysqlTx := adminDB.MustBegin()
 	if _, err := tx.ExecContext(
 		ctx,
 		"DELETE FROM player_score WHERE tenant_id = ? AND competition_id = ?",
@@ -1073,6 +1083,43 @@ func competitionScoreHandler(c echo.Context) error {
 			)
 
 		}
+	}
+	// 過去登録のrankingをdelete
+	if _, err := mysqlTx.ExecContext(
+		ctx,
+		"DELETE FROM ranking WHERE tenant_id = ? AND competition_id = ?",
+		v.tenantID,
+		competitionID,
+	); err != nil {
+		return fmt.Errorf("error Delete ranking: tenantID=%d, competitionID=%s, %w", v.tenantID, competitionID, err)
+	}
+	// rank計算して出す
+	ranks := getRanks(playerScoreRows, ctx, tenantDB)
+	// rankingにinsert
+	for i, rank := range ranks {
+		insertRank := RankingRow{
+			TenantID:          v.tenantID,
+			CompetitionID:     competitionID,
+			Rank:              int64(i),
+			Score:             rank.Score,
+			PlayerID:          rank.PlayerID,
+			PlayerDisplayName: rank.PlayerDisplayName,
+		}
+		if _, err := mysqlTx.NamedExecContext(
+			ctx,
+			"INSERT INTO ranking (`tenant_id`, `competition_id`, `rank`, `score`, `player_id`, `player_display_name`) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
+			insertRank,
+		); err != nil {
+			return fmt.Errorf(
+				"error Insert ranking: tenant_id=%d, playerID=%s, competitionID=%s, score=%d, %w",
+				v.tenantID, rank.PlayerID, competitionID, rank.Score, err,
+			)
+
+		}
+	}
+	if err := mysqlTx.Commit(); err != nil {
+		_ = mysqlTx.Rollback()
+		return fmt.Errorf("failed to commit: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		_ = tx.Rollback()
@@ -1322,32 +1369,8 @@ func competitionRankingHandler(c echo.Context) error {
 	); err != nil {
 		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
 	}
-	ranks := make([]CompetitionRank, 0, len(pss))
-	scoredPlayerSet := make(map[string]struct{}, len(pss))
-	for _, ps := range pss {
-		// player_scoreが同一player_id内ではrow_numの降順でソートされているので
-		// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
-		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
-			continue
-		}
-		scoredPlayerSet[ps.PlayerID] = struct{}{}
-		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
-		if err != nil {
-			return fmt.Errorf("error retrievePlayer: %w", err)
-		}
-		ranks = append(ranks, CompetitionRank{
-			Score:             ps.Score,
-			PlayerID:          p.ID,
-			PlayerDisplayName: p.DisplayName,
-			RowNum:            ps.RowNum,
-		})
-	}
-	sort.Slice(ranks, func(i, j int) bool {
-		if ranks[i].Score == ranks[j].Score {
-			return ranks[i].RowNum < ranks[j].RowNum
-		}
-		return ranks[i].Score > ranks[j].Score
-	})
+
+	ranks := getRanks(pss, ctx, tenantDB)
 	pagedRanks := make([]CompetitionRank, 0, 100)
 	for i, rank := range ranks {
 		if int64(i) < rankAfter {
@@ -1376,6 +1399,36 @@ func competitionRankingHandler(c echo.Context) error {
 		},
 	}
 	return c.JSON(http.StatusOK, res)
+}
+
+func getRanks(pss []PlayerScoreRow, ctx context.Context, tenantDB *sqlx.DB) []CompetitionRank {
+	ranks := make([]CompetitionRank, 0, len(pss))
+	scoredPlayerSet := make(map[string]struct{}, len(pss))
+	for _, ps := range pss {
+		// player_scoreが同一player_id内ではrow_numの降順でソートされているので
+		// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
+		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
+			continue
+		}
+		scoredPlayerSet[ps.PlayerID] = struct{}{}
+		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
+		if err != nil {
+			fmt.Errorf("error retrievePlayer: %w", err)
+		}
+		ranks = append(ranks, CompetitionRank{
+			Score:             ps.Score,
+			PlayerID:          p.ID,
+			PlayerDisplayName: p.DisplayName,
+			RowNum:            ps.RowNum,
+		})
+	}
+	sort.Slice(ranks, func(i, j int) bool {
+		if ranks[i].Score == ranks[j].Score {
+			return ranks[i].RowNum < ranks[j].RowNum
+		}
+		return ranks[i].Score > ranks[j].Score
+	})
+	return ranks
 }
 
 type CompetitionsHandlerResult struct {
