@@ -1202,7 +1202,7 @@ func playerHandler(c echo.Context) error {
 
 	pss := make([]PlayerScoreRow, 0, len(cs))
 	if len(cIds) > 0 {
-		query, args, err := sqlx.In("SELECT id, tenant_id, player_id, competition_id, score,MAX(row_num),created_at,updated_at "+
+		query, args, err := sqlx.In("SELECT id, tenant_id, player_id, competition_id, score,MAX(row_num) AS row_num,created_at,updated_at "+
 			"FROM player_score WHERE tenant_id = ? AND competition_id IN (?) AND player_id = ? GROUP BY id, tenant_id, player_id, competition_id,created_at,updated_at",
 			v.tenantID,
 			cIds,
