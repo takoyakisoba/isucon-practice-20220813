@@ -1320,7 +1320,7 @@ WITH latest_score AS (
     GROUP BY tenant_id, competition_id, player_id
 )
 
-SELECT (? + ROW_NUMBER() OVER (ORDER BY player_score.row_num DESC)) AS rank_no,
+SELECT (? + ROW_NUMBER() OVER (ORDER BY player_score.score DESC)) AS rank_no,
        player_score.score,
        player_score.player_id,
        player.display_name AS player_display_name,
