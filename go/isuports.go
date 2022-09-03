@@ -1320,7 +1320,7 @@ WITH latest_score AS (
     GROUP BY tenant_id, competition_id, player_id
 )
 
-SELECT ROW_NUMBER() OVER (ORDER BY player_score.row_num DESC) AS rank_no,
+SELECT (? + ROW_NUMBER() OVER (ORDER BY player_score.row_num DESC)) AS rank_no,
        player_score.score,
        player_score.player_id,
        player.display_name AS player_display_name,
@@ -1335,7 +1335,7 @@ INNER JOIN player_score ON (
 INNER JOIN player ON (player.tenant_id = player_score.tenant_id AND player.id = player_score.player_id)
 ORDER BY player_score.row_num DESC LIMIT 100 OFFSET ?;
 `
-	if err := tenantDB.SelectContext(ctx, &pagedRanks, q, tenant.ID, competitionID, rankAfter); err != nil {
+	if err := tenantDB.SelectContext(ctx, &pagedRanks, q, tenant.ID, competitionID, rankAfter, rankAfter); err != nil {
 		return fmt.Errorf("failed to fetch ranking: %w", err)
 	}
 
