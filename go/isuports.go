@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1238,11 +1237,11 @@ func playerHandler(c echo.Context) error {
 }
 
 type CompetitionRank struct {
-	Rank              int64  `json:"rank"`
-	Score             int64  `json:"score"`
-	PlayerID          string `json:"player_id"`
-	PlayerDisplayName string `json:"player_display_name"`
-	RowNum            int64  `json:"-"` // APIレスポンスのJSONには含まれない
+	Rank              int64  `db:"rank_no" json:"rank"`
+	Score             int64  `db:"score" json:"score"`
+	PlayerID          string `db:"player_id" json:"player_id"`
+	PlayerDisplayName string `db:"player_display_name" json:"player_display_name"`
+	RowNum            int64  `db:"row_num" json:"-"` // APIレスポンスのJSONには含まれない
 }
 
 type CompetitionRankingHandlerResult struct {
@@ -1312,56 +1311,32 @@ func competitionRankingHandler(c echo.Context) error {
 		}
 	}
 
-	pss := []PlayerScoreRow{}
-	if err := tenantDB.SelectContext(
-		ctx,
-		&pss,
-		"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? ORDER BY row_num DESC",
-		tenant.ID,
-		competitionID,
-	); err != nil {
-		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
-	}
-	ranks := make([]CompetitionRank, 0, len(pss))
-	scoredPlayerSet := make(map[string]struct{}, len(pss))
-	for _, ps := range pss {
-		// player_scoreが同一player_id内ではrow_numの降順でソートされているので
-		// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
-		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
-			continue
-		}
-		scoredPlayerSet[ps.PlayerID] = struct{}{}
-		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
-		if err != nil {
-			return fmt.Errorf("error retrievePlayer: %w", err)
-		}
-		ranks = append(ranks, CompetitionRank{
-			Score:             ps.Score,
-			PlayerID:          p.ID,
-			PlayerDisplayName: p.DisplayName,
-			RowNum:            ps.RowNum,
-		})
-	}
-	sort.Slice(ranks, func(i, j int) bool {
-		if ranks[i].Score == ranks[j].Score {
-			return ranks[i].RowNum < ranks[j].RowNum
-		}
-		return ranks[i].Score > ranks[j].Score
-	})
-	pagedRanks := make([]CompetitionRank, 0, 100)
-	for i, rank := range ranks {
-		if int64(i) < rankAfter {
-			continue
-		}
-		pagedRanks = append(pagedRanks, CompetitionRank{
-			Rank:              int64(i + 1),
-			Score:             rank.Score,
-			PlayerID:          rank.PlayerID,
-			PlayerDisplayName: rank.PlayerDisplayName,
-		})
-		if len(pagedRanks) >= 100 {
-			break
-		}
+	pagedRanks := make([]CompetitionRank, 0)
+	q := `
+WITH latest_score AS (
+    SELECT tenant_id, competition_id, player_id, MAX(row_num) as row_num
+    FROM player_score
+    WHERE tenant_id = ? AND competition_id = ?
+    GROUP BY tenant_id, competition_id, player_id
+)
+
+SELECT ROW_NUMBER() OVER (ORDER BY player_score.row_num DESC) AS rank_no,
+       player_score.score,
+       player_score.player_id,
+       player.display_name AS player_display_name,
+       player_score.row_num
+FROM latest_score
+INNER JOIN player_score ON (
+        player_score.tenant_id = latest_score.tenant_id
+    AND player_score.competition_id = latest_score.competition_id
+    AND player_score.player_id = latest_score.player_id
+    AND player_score.row_num = latest_score.row_num
+)
+INNER JOIN player ON (player.tenant_id = player_score.tenant_id AND player.id = player_score.player_id)
+ORDER BY player_score.row_num DESC LIMIT 100 OFFSET ?;
+`
+	if err := tenantDB.SelectContext(ctx, &pagedRanks, q, tenant.ID, competitionID, rankAfter); err != nil {
+		return fmt.Errorf("failed to fetch ranking: %w", err)
 	}
 
 	res := SuccessResult{
