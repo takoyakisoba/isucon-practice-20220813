@@ -1229,9 +1229,7 @@ func playerHandler(c echo.Context) error {
 	var cons map[string]CompetitionRow
 	if len(pscIds) > 0 {
 		query, args, err := sqlx.In("SELECT * FROM competition WHERE id IN (?)",
-			v.tenantID,
-			pscIds,
-			p.ID)
+			pscIds)
 		if err != nil {
 			return fmt.Errorf("error Select competition: %w", err)
 		}
