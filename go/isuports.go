@@ -1179,15 +1179,81 @@ func playerHandler(c echo.Context) error {
 		}
 		return fmt.Errorf("error retrievePlayer: %w", err)
 	}
-	
-	psds := make([]PlayerScoreDetail, 0, 160)
+	cs := []CompetitionRow{}
 	if err := tenantDB.SelectContext(
 		ctx,
-		&psds,
-		"SELECT C.title AS competition_title, S.score AS score FROM competition C JOIN last_player_score S ON C.id = S.competition_id AND C.tenant_id = S.tenant_id WHERE S.player_id = ? AND C.tenant_id = ? ORDER BY C.created_at ASC",
-		p.ID, v.tenantID,
+		&cs,
+		"SELECT * FROM competition WHERE tenant_id = ? ORDER BY created_at ASC",
+		v.tenantID,
 	); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("error Select competition: %w", err)
+	}
+
+	cIdUnique := make(map[string]struct{})
+	var cIds []interface{}
+	for _, row := range cs {
+		id := row.ID
+		if _, ok := cIdUnique[id]; !ok {
+			cIds = append(cIds, id)
+			cIdUnique[id] = struct{}{}
+		}
+	}
+
+	pss := make([]PlayerScoreRow, 0, len(cs))
+	if len(cIds) > 0 {
+		query, args, err := sqlx.In("SELECT id, tenant_id, player_id, competition_id, score,MAX(row_num) AS row_num,created_at,updated_at "+
+			"FROM player_score WHERE tenant_id = ? AND competition_id IN (?) AND player_id = ? GROUP BY id, tenant_id, player_id, competition_id,created_at,updated_at",
+			v.tenantID,
+			cIds,
+			p.ID)
+		if err != nil {
+			return fmt.Errorf("error Select competition: %w", err)
+		}
+		err = tenantDB.SelectContext(ctx,
+			&pss,
+			query,
+			args...)
+	}
+
+	psds := make([]PlayerScoreDetail, 0, len(pss))
+	pscIdUnique := make(map[string]struct{})
+	var pscIds []interface{}
+	for _, row := range pss {
+		id := row.CompetitionID
+		if _, ok := pscIdUnique[id]; !ok {
+			pscIds = append(pscIds, id)
+			pscIdUnique[id] = struct{}{}
+		}
+	}
+
+	var cons map[string]CompetitionRow
+	if len(pscIds) > 0 {
+		query, args, err := sqlx.In("SELECT * FROM competition WHERE id IN (?)",
+			v.tenantID,
+			pscIds,
+			p.ID)
+		if err != nil {
+			return fmt.Errorf("error Select competition: %w", err)
+		}
+		var com []CompetitionRow
+		err = tenantDB.SelectContext(ctx,
+			&com,
+			query,
+			args...)
+		if err != nil {
+			return fmt.Errorf("error Select competition: %w", err)
+		}
+
+		cons = make(map[string]CompetitionRow, len(com))
+		for _, u := range com {
+			cons[u.ID] = u
+		}
+	}
+	for _, ps := range pss {
+		psds = append(psds, PlayerScoreDetail{
+			CompetitionTitle: cons[ps.ID].Title,
+			Score:            ps.Score,
+		})
 	}
 
 	res := SuccessResult{
