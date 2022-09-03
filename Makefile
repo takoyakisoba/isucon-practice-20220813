@@ -31,4 +31,4 @@ sqlite-log:
 	cat ~/tmp/logs/go.log | jq .statement | sort | uniq -c | sort -n
 
 bench:
-	ssh isucon-bench "cd bench && ./bench -target-addr 172.31.10.233:443"
+	ssh isucon-bench "cd bench && ./bench -target-addr 13.231.139.158:443"
